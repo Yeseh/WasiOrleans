@@ -4,5 +4,5 @@ internal interface IWasiGrainService
 {
     Task ListModules();
 
-    Task GetModule(string moduleName);
+    Task<IWasiHttpWorkerGrain> GetModule(string moduleName);
 }

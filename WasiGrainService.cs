@@ -3,23 +3,20 @@ using Orleans.Concurrency;
 using Orleans.Runtime;
 
 [Reentrant]
-public class WasiGrainService : GrainService, IWasiGrainService, System.IDisposable
+public class WasiGrainService : GrainService, IWasiGrainService, IDisposable
 {
     private Wasmtime.Engine _engine = null!;
     private Wasmtime.Store _store = null!;
     private Wasmtime.Linker _linker = null!;
-
     private readonly IWasiModuleStorage _moduleStorage;
+    private readonly IGrainFactory _grainFactory;
 
-    public WasiGrainService(IWasiModuleStorage wasiModuleStorage)
-        : base()
+    private List<Wasmtime.Module> _modules = new();
+
+    public WasiGrainService(IWasiModuleStorage wasiModuleStorage, IGrainFactory grainFactory)
     {
         _moduleStorage = wasiModuleStorage;
-    }
-
-    public Task GetModule(string moduleName)
-    {
-        throw new NotImplementedException();
+        _grainFactory = grainFactory;
     }
 
     public override async Task Init(IServiceProvider serviceProvider)
@@ -27,11 +24,28 @@ public class WasiGrainService : GrainService, IWasiGrainService, System.IDisposa
         _engine = new();
         _linker = new(_engine);
         _store = new(_engine);
-
+        _modules = new();
+        
         var modules =  await _moduleStorage.ListModulesAsync();
 
+        foreach (var path in modules)
+        {
+            Wasmtime.Module.FromFile(_engine, path);
+        }
+
         await base.Init(serviceProvider);
-        return Task.CompletedTask;
+    }
+
+    public async Task<IWasiHttpWorkerGrain> GetModule(string modulename)
+    {
+        var module = _modules.FirstOrDefault(x => x.Name == modulename);
+
+        if (module == null) { throw new ArgumentException("Module not found"); }
+
+        var grain = _grainFactory.GetGrain<IWasiHttpWorkerGrain>(0);
+        await grain.SetModule(module);
+
+        return grain; 
     }
 
     new public void Dispose()
@@ -39,6 +53,7 @@ public class WasiGrainService : GrainService, IWasiGrainService, System.IDisposa
         if (_store is not null) { _store.Dispose(); }
         if (_linker is not null) { _linker.Dispose(); } 
         if (_engine is not null) { _engine.Dispose(); } 
+
         base.Dispose();
     }
 
